@@ -83,6 +83,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Ro
 .empty-text{font-size:15px;font-weight:500;color:#9ca3af;margin-bottom:6px}
 .empty-hint{font-size:13px;color:#d1d5db}
 
+.breadcrumb{display:flex;align-items:center;gap:4px;padding:10px 24px;font-size:13px;flex-wrap:wrap}
+.bc-item{color:#6b7280;white-space:nowrap}
+.bc-link{color:#2563eb;cursor:pointer;text-decoration:none}
+.bc-link:hover{text-decoration:underline}
+.bc-sep{color:#d1d5db}
+.folder-link{cursor:pointer;color:#2563eb;text-decoration:none}
+.folder-link:hover{text-decoration:underline}
+
 .toast{position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-100px);padding:12px 24px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;color:#1e293b;font-size:13px;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,.1);z-index:9999;transition:transform .3s cubic-bezier(.4,0,.2,1);pointer-events:none}
 .toast.show{transform:translateX(-50%) translateY(0)}
 
@@ -126,6 +134,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Ro
 <div class="progress-overlay" id="progress"><div class="spinner"></div><span id="progressText">上传中...</span></div>
 <div class="footer">Linの工具</div>
 <script>
+let currentPath='';
 const dropZone=document.getElementById('dropZone');
 const fileInput=document.getElementById('fileInput');
 const toast=document.getElementById('toast');
@@ -141,10 +150,10 @@ function getFileType(name){
   const ext=name.split('.').pop().toLowerCase();
   const map={pdf:'doc',doc:'doc',docx:'doc',xls:'doc',xlsx:'doc',ppt:'doc',pptx:'doc',
     jpg:'img',jpeg:'img',png:'img',gif:'img',bmp:'img',svg:'img',webp:'img',
-    mp4:'video',avi:'video',mkv:'video',mov:'video',wmv:'video',
-    mp3:'audio',wav:'audio',flac:'audio',aac:'audio',ogg:'audio',
-    zip:'archive',rar:'archive','7z':'archive',tar:'archive',gz:'archive',
-    js:'code',ts:'code',py:'code',java:'code',c:'code',cpp:'code',html:'code',css:'code',json:'code',xml:'code'};
+    mp4:'video',avi:'video',mkv:'video',mov:'video',
+    mp3:'audio',wav:'audio',flac:'audio',
+    zip:'archive',rar:'archive','7z':'archive',
+    js:'code',ts:'code',py:'code',java:'code',html:'code',css:'code',json:'code'};
   return map[ext]||'other';
 }
 
@@ -169,8 +178,7 @@ fileInput.addEventListener('change',e=>{uploadFiles(e.target.files);e.target.val
 async function uploadFiles(files){
   if(!files.length)return;
   const fd=new FormData();
-  let totalSize=0;
-  for(const f of files){fd.append('files',f);totalSize+=f.size}
+  for(const f of files)fd.append('files',f);
   progress.classList.add('show');
   progressText.textContent='正在上传 '+files.length+' 个文件...';
   try{
@@ -182,9 +190,21 @@ async function uploadFiles(files){
 }
 
 async function deleteFile(name){
+  const fullPath=currentPath?currentPath+'/'+name:name;
   if(!confirm('确定删除 '+name+' ？'))return;
-  try{await fetch('/delete/'+encodeURIComponent(name),{method:'DELETE'});showToast('已删除');loadFiles()}
+  try{await fetch('/delete/'+encodeURIComponent(fullPath),{method:'DELETE'});showToast('已删除');loadFiles()}
   catch(e){showToast('删除失败',3000)}
+}
+
+function enterFolder(name){
+  currentPath=currentPath?currentPath+'/'+name:name;
+  loadFiles();
+}
+
+function navigateTo(idx){
+  if(idx<0){currentPath='';}
+  else{currentPath=currentPath.split('/').slice(0,idx+1).join('/');}
+  loadFiles();
 }
 
 function formatSize(b){
@@ -205,22 +225,34 @@ function formatDate(d){
 
 async function loadFiles(){
   try{
-    const r=await fetch('/api/files');
+    const url=currentPath?'/api/files?path='+encodeURIComponent(currentPath):'/api/files';
+    const r=await fetch(url);
     const files=await r.json();
     const el=document.getElementById('fileList');
     let totalSize=0;files.forEach(f=>{if(!f.isDirectory)totalSize+=f.size});
     document.getElementById('statCount').textContent=files.length;
     document.getElementById('statSize').textContent=formatSize(totalSize);
-    if(!files.length){el.innerHTML='<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">暂无共享文件</div><div class="empty-hint">拖拽文件到上方区域即可上传</div></div>';return}
-    let h='<div class="file-header"><div class="col-name th-name">文件名</div><div class="col-size th-size">大小</div><div class="col-time th-time">修改时间</div><div class="col-action th-action">操作</div></div>';
+
+    let breadcrumb='<div class="breadcrumb"><span class="bc-item'+(currentPath?' bc-link':'')+'" onclick="navigateTo(-1)">🏠 全部文件</span>';
+    if(currentPath){
+      const parts=currentPath.split('/');
+      parts.forEach((p,i)=>{
+        breadcrumb+='<span class="bc-sep">/</span><span class="bc-item'+(i<parts.length-1?' bc-link':'')+'" onclick="navigateTo('+i+')">'+p+'</span>';
+      });
+    }
+    breadcrumb+='</div>';
+
+    if(!files.length){el.innerHTML=breadcrumb+'<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">此目录为空</div><div class="empty-hint">拖拽文件到上方区域即可上传</div></div>';return}
+    let h=breadcrumb+'<div class="file-header"><div class="col-name th-name">文件名</div><div class="col-size th-size">大小</div><div class="col-time th-time">修改时间</div><div class="col-action th-action">操作</div></div>';
     files.forEach(f=>{
       const type=f.isDirectory?'folder':getFileType(f.name);
       const icon=f.isDirectory?'📁':getFileIcon(f.name);
-      h+='<div class="file-item"><div class="file-col col-name"><div class="file-icon-wrap '+type+'">'+icon+'</div><span class="file-name-text">'+f.name+'</span></div>';
+      const nameHtml=f.isDirectory?'<a class="file-name-text folder-link" onclick="enterFolder(\\''+f.name.replace(/'/g,"\\\\'")+'\\')">'+f.name+'</a>':'<span class="file-name-text">'+f.name+'</span>';
+      h+='<div class="file-item"><div class="file-col col-name"><div class="file-icon-wrap '+type+'">'+icon+'</div>'+nameHtml+'</div>';
       h+='<div class="file-col col-size">'+(f.isDirectory?'<span class="file-folder-tag">文件夹</span>':'<span class="file-size">'+formatSize(f.size)+'</span>')+'</div>';
       h+='<div class="file-col col-time">'+formatDate(f.mtime)+'</div>';
       h+='<div class="file-col col-action">';
-      if(!f.isDirectory)h+='<a href="/download/'+encodeURIComponent(f.name)+'" class="btn btn-dl">↓ 下载</a>';
+      if(!f.isDirectory){const fp=currentPath?currentPath+'/'+f.name:f.name;h+='<a href="/download/'+encodeURIComponent(fp)+'" class="btn btn-dl">↓ 下载</a>';}
       h+='<button class="btn btn-del" onclick="deleteFile(\\''+f.name.replace(/'/g,"\\\\'")+'\\')">删除</button></div></div>';
     });
     el.innerHTML=h;
@@ -248,9 +280,12 @@ function setupRoutes(app, shareDir) {
 
   app.get('/api/files', (req, res) => {
     try {
-      const files = fs.readdirSync(shareDir);
+      const subPath = req.query.path || '';
+      const targetDir = subPath ? safePathJoin(shareDir, subPath) : shareDir;
+      if (!targetDir) return res.status(400).json([]);
+      const files = fs.readdirSync(targetDir);
       const result = files.map(name => {
-        const filePath = path.join(shareDir, name);
+        const filePath = path.join(targetDir, name);
         try {
           const stat = fs.statSync(filePath);
           return { name, size: stat.size, mtime: stat.mtime.toISOString(), isDirectory: stat.isDirectory() };
@@ -264,22 +299,26 @@ function setupRoutes(app, shareDir) {
     res.json({ success: true });
   });
 
-  app.get('/download/:filename', (req, res) => {
-    const fileName = decodeURIComponent(req.params.filename);
+  app.get('/download/*', (req, res) => {
+    const fileName = decodeURIComponent(req.params[0]);
     const safe = safePathJoin(shareDir, fileName);
     if (!safe || !fs.existsSync(safe)) {
       return res.status(404).send('File not found');
     }
-    const mimeType = mime.lookup(safe) || 'application/octet-stream';
     const stat = fs.statSync(safe);
+    if (stat.isDirectory()) {
+      return res.status(400).send('Cannot download directory');
+    }
+    const mimeType = mime.lookup(safe) || 'application/octet-stream';
+    const baseName = path.basename(fileName);
     res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(baseName)}`);
     res.setHeader('Content-Length', stat.size);
     fs.createReadStream(safe).pipe(res);
   });
 
-  app.delete('/delete/:filename', (req, res) => {
-    const fileName = decodeURIComponent(req.params.filename);
+  app.delete('/delete/*', (req, res) => {
+    const fileName = decodeURIComponent(req.params[0]);
     const safe = safePathJoin(shareDir, fileName);
     if (!safe) return res.status(400).json({ error: 'Invalid path' });
     try {

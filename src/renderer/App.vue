@@ -28,12 +28,42 @@
               <label>端口</label>
               <input type="number" v-model="port" :disabled="running" class="port-field" />
             </div>
+            <label class="auto-start-toggle">
+              <input type="checkbox" v-model="autoStart" @change="toggleAutoStart">
+              <span class="toggle-slider"></span>
+              <span class="toggle-label">开机自启</span>
+            </label>
             <button class="toggle-btn" :class="{ 'active': running }" @click="toggleServer">
               <span class="toggle-icon">{{ running ? '⏹' : '▶' }}</span>
               {{ running ? '停止' : '启动' }}
             </button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" v-if="showPortError" @click.self="showPortError = false">
+      <div class="modal-box">
+        <div class="modal-icon">⚠️</div>
+        <div class="modal-msg">{{ portError }}</div>
+        <button class="modal-btn" @click="showPortError = false">确定</button>
+      </div>
+    </div>
+
+    <div class="modal-overlay" v-if="showCloseConfirm">
+      <div class="modal-box close-modal">
+        <div class="modal-icon">❓</div>
+        <div class="modal-msg" style="font-weight:600;font-size:16px;color:#1e293b;margin-bottom:4px">确定要关闭吗？</div>
+        <div class="modal-msg" style="margin-bottom:18px">关闭后局域网设备将无法访问共享文件</div>
+        <div class="close-btns">
+          <button class="modal-btn btn-blue" @click="handleCloseChoice('tray')">隐藏到托盘</button>
+          <button class="modal-btn btn-red" @click="handleCloseChoice('exit')">退出程序</button>
+        </div>
+        <button class="modal-btn btn-gray" @click="handleCloseCancel" style="margin-top:8px">取消</button>
+        <label class="close-chk">
+          <input type="checkbox" v-model="closeDontAsk">
+          <span>以后不再询问</span>
+        </label>
       </div>
     </div>
 
@@ -116,6 +146,13 @@
       </div>
 
       <div class="file-list" v-if="files.length">
+        <div class="breadcrumb" v-if="currentPath">
+          <span class="bc-item bc-link" @click="navigateTo(-1)">🏠 全部文件</span>
+          <template v-for="(part, idx) in currentPath.split('/')" :key="idx">
+            <span class="bc-sep">/</span>
+            <span class="bc-item" :class="{ 'bc-link': idx < currentPath.split('/').length - 1 }" @click="idx < currentPath.split('/').length - 1 ? navigateTo(idx) : null">{{ part }}</span>
+          </template>
+        </div>
         <div class="file-item header-row">
           <div class="file-col name-col">文件名</div>
           <div class="file-col size-col">大小</div>
@@ -125,7 +162,8 @@
         <div class="file-item" v-for="file in files" :key="file.name">
           <div class="file-col name-col">
             <span class="file-icon">{{ file.isDirectory ? '📁' : getFileIcon(file.name) }}</span>
-            <span class="file-name" :title="file.name">{{ file.name }}</span>
+            <span v-if="file.isDirectory" class="file-name folder-link" @click="enterFolder(file.name)" :title="file.name">{{ file.name }}</span>
+            <span v-else class="file-name" :title="file.name">{{ file.name }}</span>
           </div>
           <div class="file-col size-col">
             <span class="size-badge" v-if="!file.isDirectory">{{ formatSize(file.size) }}</span>
@@ -133,10 +171,10 @@
           </div>
           <div class="file-col time-col">{{ formatDate(file.mtime) }}</div>
           <div class="file-col action-col">
-            <button v-if="!file.isDirectory" class="action-icon-btn download" @click="downloadFile(file.name)" title="下载">
+            <button v-if="!file.isDirectory" class="action-icon-btn download" @click="downloadFile(currentPath ? currentPath + '/' + file.name : file.name)" title="下载">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v10M4 7l4 4 4-4M2 13h12" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="action-icon-btn delete" @click="deleteFile(file.name)" title="删除">
+            <button class="action-icon-btn delete" @click="deleteFile(currentPath ? currentPath + '/' + file.name : file.name)" title="删除">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3 4h10M6 4V3h4v1M5 4v9h6V4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
@@ -165,6 +203,12 @@ const files = ref([]);
 const isDragging = ref(false);
 const qrContainer = ref(null);
 const copied = ref(false);
+const portError = ref('');
+const showPortError = ref(false);
+const showCloseConfirm = ref(false);
+const closeDontAsk = ref(false);
+const currentPath = ref('');
+const autoStart = ref(false);
 
 const localUrl = computed(() => {
   if (!running.value) return '';
@@ -238,18 +282,43 @@ async function toggleServer() {
     await window.electronAPI?.stopServer();
     running.value = false;
   } else {
+    if (port.value < 1024) {
+      portError.value = '端口号不能小于1024，请使用1024以上的端口';
+      showPortError.value = true;
+      return;
+    }
+    if (port.value > 65535) {
+      portError.value = '端口号不能大于65535';
+      showPortError.value = true;
+      return;
+    }
     const result = await window.electronAPI?.startServer(port.value);
     if (result?.success) {
       running.value = true;
     } else {
-      alert('启动失败: ' + (result?.error || '未知错误'));
+      portError.value = result?.error || '启动失败';
+      showPortError.value = true;
     }
   }
 }
 
 async function refreshFiles() {
-  const list = await window.electronAPI?.getFileList();
+  const list = await window.electronAPI?.getFileList(currentPath.value);
   files.value = list || [];
+}
+
+function enterFolder(name) {
+  currentPath.value = currentPath.value ? currentPath.value + '/' + name : name;
+  refreshFiles();
+}
+
+function navigateTo(idx) {
+  if (idx < 0) {
+    currentPath.value = '';
+  } else {
+    currentPath.value = currentPath.value.split('/').slice(0, idx + 1).join('/');
+  }
+  refreshFiles();
 }
 
 async function addFiles() {
@@ -272,6 +341,10 @@ async function clearAllFiles() {
   if (!confirm('确定清空全部共享文件？此操作不可恢复。')) return;
   await window.electronAPI?.clearAllFiles();
   await refreshFiles();
+}
+
+async function toggleAutoStart() {
+  await window.electronAPI?.setAutoStart(autoStart.value);
 }
 
 async function handleDrop(e) {
@@ -312,6 +385,16 @@ async function renderQR() {
   });
 }
 
+async function handleCloseChoice(choice) {
+  await window.electronAPI?.closeDialogChoice(choice, closeDontAsk.value);
+  showCloseConfirm.value = false;
+}
+
+function handleCloseCancel() {
+  showCloseConfirm.value = false;
+  window.electronAPI?.closeDialogCancel();
+}
+
 onMounted(async () => {
   const ip = await window.electronAPI?.getLocalIP();
   if (ip) localIP.value = ip;
@@ -320,8 +403,19 @@ onMounted(async () => {
     running.value = true;
     port.value = status.port || 18080;
   }
+  autoStart.value = await window.electronAPI?.getAutoStart() || false;
   await refreshFiles();
   renderQR();
+  window.electronAPI?.onStatusChanged(async () => {
+    const s = await window.electronAPI?.getServerStatus();
+    running.value = s?.running || false;
+    if (s?.port) port.value = s.port;
+    await refreshFiles();
+  });
+  window.electronAPI?.onShowCloseDialog(() => {
+    closeDontAsk.value = false;
+    showCloseConfirm.value = true;
+  });
 });
 
 watch(running, async () => {
@@ -557,6 +651,163 @@ body {
 
 .toggle-icon {
   font-size: 12px;
+}
+
+.auto-start-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.auto-start-toggle input { display: none; }
+
+.toggle-slider {
+  width: 38px;
+  height: 20px;
+  background: #4b5563;
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.auto-start-toggle input:checked + .toggle-slider {
+  background: #22c55e;
+}
+
+.auto-start-toggle input:checked + .toggle-slider::after {
+  transform: translateX(18px);
+}
+
+.toggle-label {
+  font-size: 13px;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-box {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 32px 36px 24px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  min-width: 280px;
+}
+
+.modal-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+}
+
+.modal-msg {
+  font-size: 14px;
+  color: #4b5563;
+  margin-bottom: 20px;
+  line-height: 1.6;
+}
+
+.modal-btn {
+  padding: 8px 36px;
+  border: none;
+  border-radius: 8px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.modal-btn:hover {
+  background: #2563eb;
+}
+
+.close-modal {
+  min-width: 320px;
+}
+
+.close-btns {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.btn-blue {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+.btn-blue:hover {
+  background: #dbeafe;
+}
+
+.btn-red {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.btn-red:hover {
+  background: #fee2e2;
+}
+
+.btn-gray {
+  background: #f9fafb;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+}
+
+.btn-gray:hover {
+  background: #f3f4f6;
+}
+
+.close-chk {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.close-chk input {
+  accent-color: #3b82f6;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.close-chk span {
+  font-size: 12px;
+  color: #9ca3af;
 }
 
 .main-body {
@@ -869,6 +1120,43 @@ body {
   border-radius: 14px;
   overflow: hidden;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 20px;
+  font-size: 13px;
+  border-bottom: 1px solid #f3f4f6;
+  flex-wrap: wrap;
+}
+
+.bc-item {
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.bc-link {
+  color: #2563eb;
+  cursor: pointer;
+}
+
+.bc-link:hover {
+  text-decoration: underline;
+}
+
+.bc-sep {
+  color: #d1d5db;
+}
+
+.folder-link {
+  cursor: pointer;
+  color: #2563eb;
+}
+
+.folder-link:hover {
+  text-decoration: underline;
 }
 
 .file-item {
