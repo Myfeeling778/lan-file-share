@@ -153,29 +153,31 @@
             <span class="bc-item" :class="{ 'bc-link': idx < currentPath.split('/').length - 1 }" @click="idx < currentPath.split('/').length - 1 ? navigateTo(idx) : null">{{ part }}</span>
           </template>
         </div>
-        <div class="file-item header-row">
-          <div class="file-col name-col">文件名</div>
-          <div class="file-col size-col">大小</div>
-          <div class="file-col time-col">修改时间</div>
-          <div class="file-col action-col">操作</div>
+        <div class="fl-header">
+          <div class="fl-h-name">文件名</div>
+          <div class="fl-h-size">大小</div>
+          <div class="fl-h-time">修改时间</div>
+          <div class="fl-h-action">操作</div>
         </div>
-        <div class="file-item" v-for="file in files" :key="file.name">
-          <div class="file-col name-col">
-            <span class="file-icon">{{ file.isDirectory ? '📁' : getFileIcon(file.name) }}</span>
-            <span v-if="file.isDirectory" class="file-name folder-link" @click="enterFolder(file.name)" :title="file.name">{{ file.name }}</span>
-            <span v-else class="file-name" :title="file.name">{{ file.name }}</span>
+        <div class="fl-row" v-for="file in files" :key="file.name" :class="{ 'is-folder': file.isDirectory }">
+          <div class="fl-name">
+            <div class="fl-icon" :class="file.isDirectory ? 'fl-icon-folder' : getFileType(file.name)">
+              {{ file.isDirectory ? '📁' : getFileIcon(file.name) }}
+            </div>
+            <span v-if="file.isDirectory" class="fl-name-text fl-folder-name" @click="enterFolder(file.name)" :title="file.name">{{ file.name }}</span>
+            <span v-else class="fl-name-text" :title="file.name">{{ file.name }}</span>
           </div>
-          <div class="file-col size-col">
-            <span class="size-badge" v-if="!file.isDirectory">{{ formatSize(file.size) }}</span>
-            <span class="folder-badge" v-else>文件夹</span>
+          <div class="fl-size">
+            <span v-if="!file.isDirectory" class="fl-size-text">{{ formatSize(file.size) }}</span>
+            <span v-else class="fl-type-text">文件夹</span>
           </div>
-          <div class="file-col time-col">{{ formatDate(file.mtime) }}</div>
-          <div class="file-col action-col">
-            <button v-if="!file.isDirectory" class="action-icon-btn download" @click="downloadFile(currentPath ? currentPath + '/' + file.name : file.name)" title="下载">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v10M4 7l4 4 4-4M2 13h12" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="fl-time">{{ formatDate(file.mtime) }}</div>
+          <div class="fl-action">
+            <button class="fl-btn fl-btn-dl" @click="downloadFile(currentPath ? currentPath + '/' + file.name : file.name)" title="下载">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1v10M4.5 7.5 8 11l3.5-3.5M2 13h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button class="action-icon-btn delete" @click="deleteFile(currentPath ? currentPath + '/' + file.name : file.name)" title="删除">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3 4h10M6 4V3h4v1M5 4v9h6V4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <button class="fl-btn fl-btn-del" @click="deleteFile(currentPath ? currentPath + '/' + file.name : file.name)" title="删除">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 4.5h10M6.5 4.5V3.5h3v1M5 4.5v8h6v-8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
         </div>
@@ -221,13 +223,25 @@ function getFileIcon(name) {
     pdf: '📕', doc: '📘', docx: '📘', xls: '📗', xlsx: '📗', ppt: '📙', pptx: '📙',
     jpg: '🖼', jpeg: '🖼', png: '🖼', gif: '🖼', bmp: '🖼', svg: '🖼', webp: '🖼',
     mp4: '🎬', avi: '🎬', mkv: '🎬', mov: '🎬', wmv: '🎬',
-    mp3: '🎵', wav: '🎵', flac: '🎵', aac: '🎵', ogg: '🎵',
+    mp3: '🎵', wav: '🎵', flac: '🎵', aac: '🎵',
     zip: '📦', rar: '📦', '7z': '📦', tar: '📦', gz: '📦',
-    exe: '⚙️', msi: '⚙️', dmg: '⚙️',
-    txt: '📝', md: '📝', csv: '📝', json: '📝', xml: '📝',
-    js: '📜', ts: '📜', py: '📜', java: '📜', c: '📜', cpp: '📜',
+    txt: '📝', md: '📝', log: '📝',
+    js: '📜', ts: '📜', py: '📜', java: '📜', html: '📜', css: '📜', json: '📜', xml: '📜'
   };
   return iconMap[ext] || '📄';
+}
+
+function getFileType(name) {
+  const ext = name.split('.').pop()?.toLowerCase();
+  const map = {
+    pdf: 'ft-doc', doc: 'ft-doc', docx: 'ft-doc', xls: 'ft-doc', xlsx: 'ft-doc', ppt: 'ft-doc', pptx: 'ft-doc',
+    jpg: 'ft-img', jpeg: 'ft-img', png: 'ft-img', gif: 'ft-img', bmp: 'ft-img', svg: 'ft-img', webp: 'ft-img',
+    mp4: 'ft-video', avi: 'ft-video', mkv: 'ft-video', mov: 'ft-video',
+    mp3: 'ft-audio', wav: 'ft-audio', flac: 'ft-audio',
+    zip: 'ft-archive', rar: 'ft-archive', '7z': 'ft-archive',
+    js: 'ft-code', ts: 'ft-code', py: 'ft-code', html: 'ft-code', css: 'ft-code', json: 'ft-code'
+  };
+  return map[ext] || 'ft-other';
 }
 
 function formatSize(bytes) {
@@ -1131,97 +1145,66 @@ body {
   border-bottom: 1px solid #f3f4f6;
   flex-wrap: wrap;
 }
+.bc-item { color: #6b7280; white-space: nowrap; }
+.bc-link { color: #2563eb; cursor: pointer; }
+.bc-link:hover { text-decoration: underline; }
+.bc-sep { color: #d1d5db; }
+.folder-link { cursor: pointer; color: #2563eb; }
+.folder-link:hover { text-decoration: underline; }
 
-.bc-item {
-  color: #6b7280;
-  white-space: nowrap;
-}
-
-.bc-link {
-  color: #2563eb;
-  cursor: pointer;
-}
-
-.bc-link:hover {
-  text-decoration: underline;
-}
-
-.bc-sep {
-  color: #d1d5db;
-}
-
-.folder-link {
-  cursor: pointer;
-  color: #2563eb;
-}
-
-.folder-link:hover {
-  text-decoration: underline;
-}
-
-.file-item {
-  display: flex;
-  align-items: center;
-  padding: 14px 20px;
-  border-bottom: 1px solid #f3f4f6;
-  transition: background 0.15s;
-}
-
-.file-item:last-child {
-  border-bottom: none;
-}
-
-.file-item:not(.header-row):hover {
-  background: #f9fafb;
-}
-
-.header-row {
-  background: #f9fafb;
+.fl-header {
+  display: grid;
+  grid-template-columns: 1fr 90px 140px 72px;
+  padding: 10px 20px;
   font-size: 11px;
   font-weight: 600;
   color: #9ca3af;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 10px 20px;
+  background: #f9fafb;
   border-bottom: 1px solid #e5e7eb;
 }
 
-.file-col {
+.fl-row {
+  display: grid;
+  grid-template-columns: 1fr 90px 140px 72px;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background 0.15s;
+}
+.fl-row:last-child { border-bottom: none; }
+.fl-row:not(.is-folder):hover { background: #f9fafb; }
+.fl-row.is-folder { background: #fafbfc; }
+.fl-row.is-folder:hover { background: #f0f4f8; }
+
+.fl-name {
   display: flex;
   align-items: center;
+  gap: 12px;
   min-width: 0;
 }
 
-.name-col {
-  flex: 3;
-  gap: 10px;
-  min-width: 0;
-}
-
-.size-col {
-  flex: 1;
-  justify-content: flex-end;
-}
-
-.time-col {
-  flex: 1.5;
-  justify-content: flex-end;
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-.action-col {
-  flex: 0.8;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.file-icon {
+.fl-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 16px;
   flex-shrink: 0;
 }
+.fl-icon.ft-doc { background: #eff6ff; }
+.fl-icon.ft-img { background: #fdf4ff; }
+.fl-icon.ft-video { background: #fef2f2; }
+.fl-icon.ft-audio { background: #fefce8; }
+.fl-icon.ft-archive { background: #f0fdf4; }
+.fl-icon.ft-code { background: #ecfeff; }
+.fl-icon.ft-other { background: #f9fafb; }
+.fl-icon.fl-icon-folder { background: #f0f7ff; }
 
-.file-name {
+.fl-name-text {
   font-size: 13px;
   font-weight: 500;
   color: #1e293b;
@@ -1229,50 +1212,53 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.fl-folder-name {
+  color: #2563eb;
+  cursor: pointer;
+}
+.fl-folder-name:hover { text-decoration: underline; }
 
-.size-badge {
+.fl-size {
+  text-align: right;
+}
+.fl-size-text {
   font-size: 12px;
   font-weight: 500;
   color: #6b7280;
-  padding: 3px 8px;
-  background: #f3f4f6;
-  border-radius: 6px;
   font-family: 'SF Mono', 'Fira Code', monospace;
 }
-
-.folder-badge {
+.fl-type-text {
   font-size: 11px;
-  font-weight: 500;
   color: #9ca3af;
-  padding: 3px 8px;
-  background: #f9fafb;
-  border-radius: 6px;
 }
 
-.action-icon-btn {
-  width: 32px;
-  height: 32px;
+.fl-time {
+  text-align: right;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.fl-action {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.fl-btn {
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: #9ca3af;
   cursor: pointer;
-  transition: all 0.2s;
-  text-decoration: none;
+  transition: all 0.15s;
 }
-
-.action-icon-btn:hover {
-  background: #eff6ff;
-  color: #2563eb;
-}
-
-.action-icon-btn.delete:hover {
-  background: #fef2f2;
-  color: #dc2626;
-}
+.fl-btn-dl:hover { background: #eff6ff; color: #2563eb; }
+.fl-btn-del:hover { background: #fef2f2; color: #dc2626; }
 
 .empty-state {
   text-align: center;

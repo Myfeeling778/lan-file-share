@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execSync } = require('child_process');
+const archiver = require('archiver');
 const { startServer, stopServer, getServerStatus } = require('./server');
 
 let mainWindow = null;
@@ -75,6 +76,9 @@ function createTray() {
   }
   tray = new Tray(icon);
   tray.setToolTip('局域网文件分享');
+  tray.on('click', () => {
+    updateTrayMenu();
+  });
   tray.on('double-click', () => {
     if (mainWindow) {
       mainWindow.show();
@@ -116,8 +120,9 @@ function updateTrayMenu() {
       label: '退出',
       click: async () => {
         isQuitting = true;
-        await stopServer();
+        try { await stopServer(); } catch {}
         app.quit();
+        setTimeout(() => process.exit(0), 2000);
       }
     }
   ]);
@@ -179,8 +184,9 @@ ipcMain.handle('close-dialog-choice', async (event, choice, dontAsk) => {
     if (mainWindow) mainWindow.hide();
   } else if (choice === 'exit') {
     isQuitting = true;
-    await stopServer();
+    try { await stopServer(); } catch {}
     app.quit();
+    setTimeout(() => process.exit(0), 2000);
   }
 });
 
@@ -297,6 +303,24 @@ ipcMain.handle('download-file', async (event, fileName) => {
   const safePath = safePathJoin(shareDir, fileName);
   if (!safePath) return { success: false, error: 'Invalid path' };
   try {
+    const stat = fs.statSync(safePath);
+    if (stat.isDirectory()) {
+      const result = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: fileName + '.zip',
+        filters: [{ name: 'ZIP', extensions: ['zip'] }]
+      });
+      if (result.canceled) return { success: false, canceled: true };
+      await new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(result.filePath);
+        const archive = archiver('zip', { zlib: { level: 6 } });
+        output.on('close', resolve);
+        archive.on('error', reject);
+        archive.pipe(output);
+        archive.directory(safePath, path.basename(fileName));
+        archive.finalize();
+      });
+      return { success: true };
+    }
     const result = await dialog.showSaveDialog(mainWindow, {
       defaultPath: fileName,
       filters: [{ name: 'All Files', extensions: ['*'] }]

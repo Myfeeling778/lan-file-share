@@ -3,6 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const mime = require('mime-types');
+const archiver = require('archiver');
 
 let server = null;
 let app = null;
@@ -52,28 +53,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Ro
 .upload-zone .hint{font-size:12px;color:#9ca3af}
 
 .file-list{background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-.file-header{display:flex;padding:12px 24px;border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.8px}
-.file-item{display:flex;align-items:center;padding:16px 24px;border-bottom:1px solid #f3f4f6;transition:background .15s}
-.file-item:last-child{border-bottom:none}
-.file-item:hover{background:#f9fafb}
-.file-col{display:flex;align-items:center;min-width:0}
-.col-name{flex:3;gap:12px;min-width:0}
-.col-size{flex:1;justify-content:flex-end}
-.col-time{flex:1.5;justify-content:flex-end;font-size:12px;color:#9ca3af}
-.col-action{flex:1;justify-content:flex-end;gap:8px}
-.file-icon-wrap{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
-.file-icon-wrap.doc{background:#eff6ff}
-.file-icon-wrap.img{background:#f5f3ff}
-.file-icon-wrap.video{background:#fef2f2}
-.file-icon-wrap.audio{background:#fefce8}
-.file-icon-wrap.archive{background:#f0fdf4}
-.file-icon-wrap.code{background:#ecfeff}
-.file-icon-wrap.folder{background:#f9fafb}
-.file-icon-wrap.other{background:#f9fafb}
-.file-name-text{font-size:14px;font-weight:500;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.file-size{font-size:12px;font-weight:500;color:#6b7280;padding:4px 10px;background:#f3f4f6;border-radius:8px;font-family:'SF Mono',ui-monospace,monospace}
-.file-folder-tag{font-size:11px;font-weight:500;color:#9ca3af;padding:4px 10px;background:#f9fafb;border-radius:8px}
-.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .2s;text-decoration:none}
+.fl-header{display:grid;grid-template-columns:1fr 90px 140px 120px;padding:10px 24px;border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px;background:#f9fafb}
+.fl-row{display:grid;grid-template-columns:1fr 90px 140px 120px;align-items:center;padding:14px 24px;border-bottom:1px solid #f3f4f6;transition:background .15s}
+.fl-row:last-child{border-bottom:none}
+.fl-row:hover{background:#f9fafb}
+.fl-row.is-folder{background:#fafbfc}
+.fl-row.is-folder:hover{background:#f0f4f8}
+.fl-name{display:flex;align-items:center;gap:12px;min-width:0}
+.fl-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.fl-icon.ft-doc{background:#eff6ff}
+.fl-icon.ft-img{background:#fdf4ff}
+.fl-icon.ft-video{background:#fef2f2}
+.fl-icon.ft-audio{background:#fefce8}
+.fl-icon.ft-archive{background:#f0fdf4}
+.fl-icon.ft-code{background:#ecfeff}
+.fl-icon.ft-other{background:#f9fafb}
+.fl-icon.fl-icon-folder{background:#f0f7ff}
+.fl-name-text{font-size:13px;font-weight:500;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fl-folder-name{color:#2563eb;cursor:pointer;text-decoration:none}
+.fl-folder-name:hover{text-decoration:underline}
+.fl-size{text-align:right}
+.fl-size-text{font-size:12px;font-weight:500;color:#6b7280;font-family:'SF Mono',ui-monospace,monospace}
+.fl-type-text{font-size:11px;color:#9ca3af}
+.fl-time{text-align:right;font-size:12px;color:#9ca3af}
+.fl-action{display:flex;justify-content:flex-end;gap:6px}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;text-decoration:none}
 .btn-dl{background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe}
 .btn-dl:hover{background:#dbeafe;border-color:#93c5fd;transform:translateY(-1px)}
 .btn-del{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
@@ -104,10 +108,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Ro
 @media(max-width:600px){
   .header h1{font-size:22px}
   .stats-bar{flex-direction:column}
-  .col-time{display:none}
-  .file-header .th-time{display:none}
-  .file-item{padding:14px 16px}
-  .file-header{padding:10px 16px}
+  .fl-header,.fl-h-time,.fl-time{display:none}
+  .fl-row{grid-template-columns:1fr 80px;gap:0}
+  .fl-header{display:none}
+  .fl-row{padding:14px 16px}
 }
 </style>
 </head>
@@ -243,16 +247,17 @@ async function loadFiles(){
     breadcrumb+='</div>';
 
     if(!files.length){el.innerHTML=breadcrumb+'<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">此目录为空</div><div class="empty-hint">拖拽文件到上方区域即可上传</div></div>';return}
-    let h=breadcrumb+'<div class="file-header"><div class="col-name th-name">文件名</div><div class="col-size th-size">大小</div><div class="col-time th-time">修改时间</div><div class="col-action th-action">操作</div></div>';
+    let h=breadcrumb+'<div class="fl-header"><div class="fl-h-name">文件名</div><div class="fl-h-size">大小</div><div class="fl-h-time">修改时间</div><div class="fl-h-action">操作</div></div>';
     files.forEach(f=>{
-      const type=f.isDirectory?'folder':getFileType(f.name);
+      const type=f.isDirectory?'fl-icon-folder':getFileType(f.name);
       const icon=f.isDirectory?'📁':getFileIcon(f.name);
-      const nameHtml=f.isDirectory?'<a class="file-name-text folder-link" onclick="enterFolder(\\''+f.name.replace(/'/g,"\\\\'")+'\\')">'+f.name+'</a>':'<span class="file-name-text">'+f.name+'</span>';
-      h+='<div class="file-item"><div class="file-col col-name"><div class="file-icon-wrap '+type+'">'+icon+'</div>'+nameHtml+'</div>';
-      h+='<div class="file-col col-size">'+(f.isDirectory?'<span class="file-folder-tag">文件夹</span>':'<span class="file-size">'+formatSize(f.size)+'</span>')+'</div>';
-      h+='<div class="file-col col-time">'+formatDate(f.mtime)+'</div>';
-      h+='<div class="file-col col-action">';
-      if(!f.isDirectory){const fp=currentPath?currentPath+'/'+f.name:f.name;h+='<a href="/download/'+encodeURIComponent(fp)+'" class="btn btn-dl">↓ 下载</a>';}
+      const nameHtml=f.isDirectory?'<a class="fl-name-text fl-folder-name" onclick="enterFolder(\\''+f.name.replace(/'/g,"\\\\'")+'\\')">'+f.name+'</a>':'<span class="fl-name-text">'+f.name+'</span>';
+      h+='<div class="fl-row'+(f.isDirectory?' is-folder':'')+'"><div class="fl-name"><div class="fl-icon '+type+'">'+icon+'</div>'+nameHtml+'</div>';
+      h+='<div class="fl-size">'+(f.isDirectory?'<span class="fl-type-text">文件夹</span>':'<span class="fl-size-text">'+formatSize(f.size)+'</span>')+'</div>';
+      h+='<div class="fl-time">'+formatDate(f.mtime)+'</div>';
+      h+='<div class="fl-action">';
+      const fp=currentPath?currentPath+'/'+f.name:f.name;
+      h+='<a href="/download/'+encodeURIComponent(fp)+'" class="btn btn-dl">↓ 下载</a>';
       h+='<button class="btn btn-del" onclick="deleteFile(\\''+f.name.replace(/'/g,"\\\\'")+'\\')">删除</button></div></div>';
     });
     el.innerHTML=h;
@@ -307,7 +312,14 @@ function setupRoutes(app, shareDir) {
     }
     const stat = fs.statSync(safe);
     if (stat.isDirectory()) {
-      return res.status(400).send('Cannot download directory');
+      const baseName = path.basename(fileName);
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(baseName + '.zip')}`);
+      const archive = archiver('zip', { zlib: { level: 6 } });
+      archive.pipe(res);
+      archive.directory(safe, baseName);
+      archive.finalize();
+      return;
     }
     const mimeType = mime.lookup(safe) || 'application/octet-stream';
     const baseName = path.basename(fileName);
@@ -358,7 +370,14 @@ async function startServer(port, shareDir, ip) {
 async function stopServer() {
   return new Promise((resolve) => {
     if (server) {
+      const timeout = setTimeout(() => {
+        server = null;
+        app = null;
+        currentPort = null;
+        resolve();
+      }, 3000);
       server.close(() => {
+        clearTimeout(timeout);
         server = null;
         app = null;
         currentPort = null;
