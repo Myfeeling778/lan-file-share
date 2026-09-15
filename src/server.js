@@ -51,6 +51,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Ro
 .upload-zone:hover .upload-icon{background:#dbeafe;transform:translateY(-2px)}
 .upload-zone p{font-size:15px;font-weight:500;color:#4b5563;margin-bottom:4px}
 .upload-zone .hint{font-size:12px;color:#9ca3af}
+.folder-pick{color:#2563eb;cursor:pointer;text-decoration:none;font-weight:500}
+.folder-pick:hover{text-decoration:underline}
 
 .file-list{background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.04)}
 .fl-header{display:grid;grid-template-columns:1fr 90px 140px 120px;padding:10px 24px;border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px;background:#f9fafb}
@@ -128,9 +130,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Ro
   </div>
   <div class="upload-zone" id="dropZone">
     <div class="upload-icon">⬆</div>
-    <p>拖拽文件到此处上传</p>
-    <div class="hint">或点击选择文件 · 支持任意格式</div>
+    <p>拖拽文件或文件夹到此处上传</p>
+    <div class="hint">或 <a class="folder-pick" id="fileBtn">选择文件</a> · <a class="folder-pick" id="folderBtn">选择文件夹</a></div>
     <input type="file" id="fileInput" multiple style="display:none">
+    <input type="file" id="folderInput" webkitdirectory style="display:none">
   </div>
   <div id="fileList"></div>
 </div>
@@ -141,6 +144,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Ro
 let currentPath='';
 const dropZone=document.getElementById('dropZone');
 const fileInput=document.getElementById('fileInput');
+const folderInput=document.getElementById('folderInput');
+const fileBtn=document.getElementById('fileBtn');
+const folderBtn=document.getElementById('folderBtn');
 const toast=document.getElementById('toast');
 const progress=document.getElementById('progress');
 const progressText=document.getElementById('progressText');
@@ -176,8 +182,44 @@ function getFileIcon(name){
 dropZone.addEventListener('click',()=>fileInput.click());
 dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('dragover')});
 dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragover'));
-dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('dragover');uploadFiles(e.dataTransfer.files)});
+dropZone.addEventListener('drop',async e=>{
+  e.preventDefault();dropZone.classList.remove('dragover');
+  const items=e.dataTransfer.items;
+  if(!items||!items.length){uploadFiles(e.dataTransfer.files);return}
+  const allFiles=[];
+  for(const item of items){
+    const entry=item.webkitGetAsEntry?.();
+    if(entry)await readEntry(entry,'',allFiles);
+  }
+  if(allFiles.length)uploadFolderFiles(allFiles);
+});
+fileInput.addEventListener('click',e=>e.stopPropagation());
 fileInput.addEventListener('change',e=>{uploadFiles(e.target.files);e.target.value=''});
+folderBtn.addEventListener('click',e=>{e.stopPropagation();folderInput.click()});
+folderInput.addEventListener('click',e=>e.stopPropagation());
+folderInput.addEventListener('change',e=>{
+  const files=[];const relPaths=[];
+  for(const f of e.target.files){files.push(f);relPaths.push(f.webkitRelativePath||f.name)}
+  uploadFolderWithPaths(files,relPaths);
+  e.target.value='';
+});
+
+function readEntry(entry,prefix,list){
+  return new Promise(resolve=>{
+    if(entry.isFile){
+      entry.file(f=>{f._relPath=prefix?prefix+'/'+f.name:f.name;list.push(f);resolve()});
+    }else if(entry.isDirectory){
+      const reader=entry.createReader();
+      const readAll=(cb)=>{
+        reader.readEntries(entries=>{
+          if(!entries.length){cb();return}
+          Promise.all(entries.map(e=>readEntry(e,prefix?prefix+'/'+entry.name:entry.name,list))).then(()=>readAll(cb));
+        });
+      };
+      readAll(resolve);
+    }else{resolve()}
+  });
+}
 
 async function uploadFiles(files){
   if(!files.length)return;
@@ -191,6 +233,58 @@ async function uploadFiles(files){
     if(r.ok){showToast('上传成功');loadFiles()}
     else showToast('上传失败',3000);
   }catch(e){progress.classList.remove('show');showToast('上传出错',3000)}
+}
+
+async function uploadFolderFiles(files){
+  if(!files.length)return;
+  const groups={};
+  for(const f of files){
+    const rp=f._relPath||f.name;
+    const dir=rp.includes('/')?rp.substring(0,rp.lastIndexOf('/')):'_root';
+    if(!groups[dir])groups[dir]=[];
+    groups[dir].push(f);
+  }
+  progress.classList.add('show');
+  const dirs=Object.keys(groups);
+  let done=0;
+  for(const dir of dirs){
+    progressText.textContent='正在上传... ('+done+'/'+files.length+')';
+    const fd=new FormData();
+    for(const f of groups[dir])fd.append('files',f);
+    const qdir=dir==='_root'?'':dir;
+    try{await fetch('/upload-to-dir?dir='+encodeURIComponent(qdir),{method:'POST',body:fd})}
+    catch(e){}
+    done+=groups[dir].length;
+  }
+  progress.classList.remove('show');
+  showToast('上传成功');
+  loadFiles();
+}
+
+async function uploadFolderWithPaths(files,relPaths){
+  if(!files.length)return;
+  const groups={};
+  for(let i=0;i<files.length;i++){
+    const rp=relPaths[i]||files[i].name;
+    const dir=rp.includes('/')?rp.substring(0,rp.lastIndexOf('/')):'_root';
+    if(!groups[dir])groups[dir]=[];
+    groups[dir].push(files[i]);
+  }
+  progress.classList.add('show');
+  const dirs=Object.keys(groups);
+  let done=0;
+  for(const dir of dirs){
+    progressText.textContent='正在上传... ('+done+'/'+files.length+')';
+    const fd=new FormData();
+    for(const f of groups[dir])fd.append('files',f);
+    const qdir=dir==='_root'?'':dir;
+    try{await fetch('/upload-to-dir?dir='+encodeURIComponent(qdir),{method:'POST',body:fd})}
+    catch(e){}
+    done+=groups[dir].length;
+  }
+  progress.classList.remove('show');
+  showToast('上传成功');
+  loadFiles();
 }
 
 async function deleteFile(name){
@@ -304,6 +398,28 @@ function setupRoutes(app, shareDir) {
     res.json({ success: true });
   });
 
+  app.post('/upload-to-dir', (req, res) => {
+    const subDir = req.query.dir || '';
+    const targetDir = subDir ? safePathJoin(shareDir, subDir) : shareDir;
+    const destDir = targetDir || shareDir;
+    fs.mkdir(destDir, { recursive: true }, () => {
+      const storage2 = multer.diskStorage({
+        destination: (req2, file, cb) => cb(null, destDir),
+        filename: (req2, file, cb) => {
+          cb(null, Buffer.from(file.originalname, 'latin1').toString('utf8'));
+        }
+      });
+      const upload2 = multer({ storage: storage2, limits: { fileSize: 10 * 1024 * 1024 * 1024 } });
+      upload2.array('files', 200)(req, res, (err) => {
+        if (err) {
+          console.error('Upload error:', err.message);
+          return res.status(500).json({ error: err.message });
+        }
+        res.json({ success: true });
+      });
+    });
+  });
+
   app.get('/download/*', (req, res) => {
     const fileName = decodeURIComponent(req.params[0]);
     const safe = safePathJoin(shareDir, fileName);
@@ -353,9 +469,9 @@ async function startServer(port, shareDir, ip) {
   }
   return new Promise((resolve, reject) => {
     app = express();
+    setupRoutes(app, shareDir);
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
-    setupRoutes(app, shareDir);
     server = app.listen(port, '0.0.0.0', () => {
       currentPort = port;
       console.log(`Server running on http://${ip}:${port}`);
